@@ -1,0 +1,38 @@
+schemaVersion: 1
+id: palantir-foundry
+name: Palantir Foundry
+aliases:
+  - foundry
+  - palantir
+defaultVersionKey: current
+versions:
+  - versionKey: current
+    strategy: rolling
+    source:
+      type: sitemap
+      sitemapUrls:
+        - "https://www.palantir.com/sitemap.xml"
+      allowedHosts:
+        - "www.palantir.com"
+      includePaths:
+        - "/docs/foundry/**"
+      excludePaths:
+        - "/docs/foundry/release-notes/archive/**"
+      canonicalQueryKeys: []
+      collectionAllowed: true
+    parser:
+      contentSelectors:
+        - "main"
+        - "article"
+      removeSelectors:
+        - "nav"
+        - "footer"
+        - "script"
+        - "style"
+    chunking:
+      minTokens: 200
+      targetTokens: 800
+      maxTokens: 1400
+      maxAtomicTokens: 16000
+    freshness:
+      staleAfterHours: 168

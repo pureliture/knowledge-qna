@@ -6,3 +6,4 @@ var/
 .env.*
 .DS_Store
 *.log
+.agents/

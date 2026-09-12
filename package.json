@@ -1,0 +1,43 @@
+{
+  "name": "knowledge-qna-mcp",
+  "version": "0.1.0",
+  "description": "Host-local stdio Model Context Protocol (MCP) server for cited documentation retrieval",
+  "type": "module",
+  "main": "./dist/main.js",
+  "bin": {
+    "docsctx": "./bin/docsctx.js"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:arch": "vitest run test/architecture",
+    "docsctx": "node ./bin/docsctx.js",
+    "clean": "rm -rf dist var/cache"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/core": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
+    "better-sqlite3": "^13.0.3",
+    "cheerio": "^1.2.0",
+    "commander": "^15.0.0",
+    "js-tiktoken": "^1.0.21",
+    "marked": "^18.0.12",
+    "turndown": "^7.2.4",
+    "turndown-plugin-gfm": "^1.0.2",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.2"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.0.0",
+    "@types/turndown": "^5.0.6",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11"
+  }
+}
