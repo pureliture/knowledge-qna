@@ -25,10 +25,14 @@ import { HttpDocumentFetcher } from '../infrastructure/fetch/HttpDocumentFetcher
 import { HtmlDocumentNormalizer } from '../infrastructure/parsing/HtmlDocumentNormalizer.js';
 import { MarkdownAstChunker } from '../infrastructure/parsing/MarkdownAstChunker.js';
 import { InMemorySearchAdapter } from '../infrastructure/search/InMemorySearchAdapter.js';
+import { GoogleAgentSearchAdapter } from '../infrastructure/search/google-agent-search/GoogleAgentSearchAdapter.js';
+import type { GoogleAgentSearchConfig } from '../infrastructure/search/google-agent-search/types.js';
+import { UnavailableSearchBackend } from '../infrastructure/search/UnavailableSearchBackend.js';
 import { ResolveLibraryUseCase } from '../application/library/resolve-library.js';
 import { GetContextUseCase } from '../application/retrieval/get-context.js';
 import { SyncUseCase } from '../application/sync/SyncUseCase.js';
 import { IndexUseCase } from '../application/indexing/IndexUseCase.js';
+import { GarbageCollectionUseCase } from '../application/indexing/GarbageCollectionUseCase.js';
 import { createKnowledgeQnaMcpServer } from '../interfaces/mcp/server.js';
 
 export interface AppContainerConfig {
@@ -50,6 +54,37 @@ export interface AppContainerConfig {
   getContextUseCase?: GetContextUseCase;
   syncUseCase?: SyncUseCase;
   indexUseCase?: IndexUseCase;
+  gcUseCase?: GarbageCollectionUseCase;
+  remoteSearchBackend?: SearchBackend;
+}
+
+function createConfiguredGoogleBackend(): GoogleAgentSearchAdapter | undefined {
+  const projectId = process.env.GOOGLE_AGENT_SEARCH_PROJECT_ID ?? process.env.GOOGLE_CLOUD_PROJECT;
+  const dataStoreId = process.env.GOOGLE_AGENT_SEARCH_DATA_STORE_ID;
+  if (!projectId || !dataStoreId) {
+    return undefined;
+  }
+
+  const config: GoogleAgentSearchConfig = {
+    projectId,
+    dataStoreId,
+    location: process.env.GOOGLE_AGENT_SEARCH_LOCATION,
+    collectionId: process.env.GOOGLE_AGENT_SEARCH_COLLECTION_ID,
+    branchId: process.env.GOOGLE_AGENT_SEARCH_BRANCH_ID,
+    servingConfigId: process.env.GOOGLE_AGENT_SEARCH_SERVING_CONFIG_ID,
+  };
+  return new GoogleAgentSearchAdapter(config);
+}
+
+function isIndexBackend(value: SearchBackend | IndexBackend): value is IndexBackend {
+  return (
+    'stageGeneration' in value &&
+    'importBatch' in value &&
+    'verifyReadiness' in value &&
+    'publishGeneration' in value &&
+    'retireGeneration' in value &&
+    'deleteGeneration' in value
+  );
 }
 
 export class AppContainer {
@@ -61,6 +96,7 @@ export class AppContainer {
   readonly manifestStore: ManifestStore;
   readonly libraryRegistry: LibraryRegistry;
   readonly searchBackend: SearchBackend;
+  readonly remoteSearchBackend: SearchBackend;
   readonly indexBackend: IndexBackend;
   readonly backendKey: string;
 
@@ -73,6 +109,7 @@ export class AppContainer {
   readonly getContextUseCase: GetContextUseCase;
   readonly syncUseCase: SyncUseCase;
   readonly indexUseCase: IndexUseCase;
+  readonly gcUseCase: GarbageCollectionUseCase;
   readonly mcpServer: McpServer;
 
   constructor(config: AppContainerConfig = {}) {
@@ -88,10 +125,17 @@ export class AppContainer {
     this.backendKey = config.backendKey ?? 'in-memory-search-adapter';
 
     const defaultAdapter = new InMemorySearchAdapter(this.backendKey);
-    this.searchBackend = config.searchBackend ?? defaultAdapter;
+    const googleBackend = createConfiguredGoogleBackend();
+    this.remoteSearchBackend =
+      config.remoteSearchBackend ??
+      googleBackend ??
+      new UnavailableSearchBackend(
+        'Google Agent Search remote target is not configured; set GOOGLE_AGENT_SEARCH_PROJECT_ID (or GOOGLE_CLOUD_PROJECT) and GOOGLE_AGENT_SEARCH_DATA_STORE_ID.',
+      );
+    this.searchBackend = config.searchBackend ?? googleBackend ?? defaultAdapter;
     this.indexBackend =
       config.indexBackend ??
-      ((this.searchBackend as unknown as IndexBackend) || defaultAdapter);
+      (isIndexBackend(this.searchBackend) ? this.searchBackend : googleBackend ?? defaultAdapter);
 
     this.sourceProvider = config.sourceProvider ?? new SitemapSourceProvider();
     this.documentFetcher = config.documentFetcher ?? new HttpDocumentFetcher();
@@ -127,6 +171,14 @@ export class AppContainer {
         this.libraryRegistry,
         this.manifestStore,
         this.corpusStore,
+        this.indexBackend,
+        this.backendKey,
+      );
+    this.gcUseCase =
+      config.gcUseCase ??
+      new GarbageCollectionUseCase(
+        this.libraryRegistry,
+        this.manifestStore,
         this.indexBackend,
         this.backendKey,
       );

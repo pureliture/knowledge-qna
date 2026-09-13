@@ -10,11 +10,14 @@ import type { ManifestStore } from '../../application/ports/ManifestStore.js';
 import type { SyncUseCase } from '../../application/sync/SyncUseCase.js';
 import type { GetContextUseCase } from '../../application/retrieval/get-context.js';
 import type { IndexUseCase } from '../../application/indexing/IndexUseCase.js';
+import type { GarbageCollectionUseCase } from '../../application/indexing/GarbageCollectionUseCase.js';
+import type { SearchBackend } from '../../application/ports/SearchBackend.js';
 import { runServeCommand } from './commands/serve.js';
 import { runDoctorCommand } from './commands/doctor.js';
 import { runSyncCommand } from './commands/sync.js';
 import { runSearchCommand } from './commands/search.js';
 import { runIndexCommand } from './commands/index.js';
+import { runGcCommand } from './commands/gc.js';
 
 export interface CliDependencies {
   mcpServer: McpServer;
@@ -23,6 +26,9 @@ export interface CliDependencies {
   syncUseCase?: SyncUseCase;
   getContextUseCase?: GetContextUseCase;
   indexUseCase?: IndexUseCase;
+  gcUseCase?: GarbageCollectionUseCase;
+  searchBackend?: SearchBackend;
+  remoteSearchBackend?: SearchBackend;
   varRoot: string;
   configDir: string;
 }
@@ -98,11 +104,20 @@ export function buildCliProgram(getDeps: () => CliDependencies): Command {
     .option('--version <key>', 'Version key to index')
     .option('--plan', 'Dry-run: output indexing plan summary without modifying backend')
     .option('--rebuild', 'Force new generation publishing even if revision is already indexed')
+    .option('--resume <runId>', 'Resume an un-finished or failed index run')
+    .option('--abandon <runId>', 'Abandon an un-finished index run')
     .option('--wait-seconds <n>', 'Readiness verification timeout in seconds (default 1800)', (val) => parseInt(val, 10))
     .action(
       async (
         libraryId: string,
-        cmdOptions: { version?: string; plan?: boolean; rebuild?: boolean; waitSeconds?: number },
+        cmdOptions: {
+          version?: string;
+          plan?: boolean;
+          rebuild?: boolean;
+          resume?: string;
+          abandon?: string;
+          waitSeconds?: number;
+        },
       ) => {
         const deps = getDeps();
         if (!deps.indexUseCase) {
@@ -115,7 +130,40 @@ export function buildCliProgram(getDeps: () => CliDependencies): Command {
           versionKey: cmdOptions.version,
           plan: cmdOptions.plan,
           rebuild: cmdOptions.rebuild,
+          resumeRunId: cmdOptions.resume,
+          abandonRunId: cmdOptions.abandon,
           waitSeconds: cmdOptions.waitSeconds,
+        });
+        process.exit(exitCode);
+      },
+    );
+
+  program
+    .command('gc [libraryId]')
+    .description('Garbage collect retired or abandoned generations older than threshold')
+    .option('--version <key>', 'Version key to target (defaults to all versions)')
+    .option('--apply', 'Apply physical deletion (default is dry-run mode)')
+    .option(
+      '--min-age-hours <n>',
+      'Minimum age threshold in hours (default 24)',
+      (val) => parseInt(val, 10),
+    )
+    .action(
+      async (
+        libraryId: string | undefined,
+        cmdOptions: { version?: string; apply?: boolean; minAgeHours?: number },
+      ) => {
+        const deps = getDeps();
+        if (!deps.gcUseCase) {
+          process.stderr.write('[docsctx gc] ERROR: GarbageCollectionUseCase is not available.\n');
+          process.exit(1);
+        }
+        const exitCode = await runGcCommand({
+          gcUseCase: deps.gcUseCase,
+          libraryId,
+          versionKey: cmdOptions.version,
+          apply: cmdOptions.apply,
+          minAgeHours: cmdOptions.minAgeHours,
         });
         process.exit(exitCode);
       },
@@ -124,13 +172,16 @@ export function buildCliProgram(getDeps: () => CliDependencies): Command {
   program
     .command('doctor')
     .description('Perform read-only diagnostic checks on environment, registry, and storage')
-    .action(async () => {
+    .option('--remote', 'Perform remote search backend connectivity and schema health check')
+    .action(async (cmdOptions: { remote?: boolean }) => {
       const deps = getDeps();
       const exitCode = await runDoctorCommand({
         libraryRegistry: deps.libraryRegistry,
         manifestStore: deps.manifestStore,
+        searchBackend: deps.remoteSearchBackend ?? deps.searchBackend,
         varRoot: deps.varRoot,
         configDir: deps.configDir,
+        remote: cmdOptions.remote,
       });
       process.exit(exitCode);
     });

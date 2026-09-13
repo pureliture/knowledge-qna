@@ -11,9 +11,10 @@ versions:
     source:
       type: sitemap
       sitemapUrls:
-        - "https://www.palantir.com/sitemap.xml"
+        - "https://www.palantir.com/docs/sitemap.xml"
       allowedHosts:
         - "www.palantir.com"
+        - "palantir.com"
       includePaths:
         - "/docs/foundry/**"
       excludePaths:

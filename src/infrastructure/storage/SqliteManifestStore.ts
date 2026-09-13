@@ -137,6 +137,17 @@ export class SqliteManifestStore implements ManifestStore {
     if (columns.length > 0 && !columns.some((c) => c.name === 'consecutive_absences')) {
       this.db.exec('ALTER TABLE fetch_observations ADD COLUMN consecutive_absences INTEGER DEFAULT 0');
     }
+
+    if (userVersion < 3) {
+      const indexRunCols = this.db.pragma('table_info(index_runs)') as Array<{ name: string }>;
+      if (indexRunCols.length > 0 && !indexRunCols.some((c) => c.name === 'created_at')) {
+        this.db.exec('ALTER TABLE index_runs ADD COLUMN created_at TEXT');
+      }
+      if (indexRunCols.length > 0 && !indexRunCols.some((c) => c.name === 'updated_at')) {
+        this.db.exec('ALTER TABLE index_runs ADD COLUMN updated_at TEXT');
+      }
+      this.db.pragma('user_version = 3');
+    }
   }
 
   close(): void {
@@ -321,7 +332,7 @@ export class SqliteManifestStore implements ManifestStore {
   // Generations
   async getIndexGeneration(generationId: string): Promise<IndexGeneration | null> {
     const stmt = this.db.prepare(`
-      SELECT generation_id, backend_key, corpus_revision_id, index_profile_hash, state, entry_count, entry_ids_json, readiness_result_json
+      SELECT generation_id, backend_key, corpus_revision_id, index_profile_hash, state, entry_count, entry_ids_json, readiness_result_json, created_at, updated_at
       FROM index_runs
       WHERE generation_id = ?
     `);
@@ -335,6 +346,8 @@ export class SqliteManifestStore implements ManifestStore {
           entry_count: number;
           entry_ids_json: string;
           readiness_result_json: string | null;
+          created_at: string | null;
+          updated_at: string | null;
         }
       | undefined;
 
@@ -351,13 +364,19 @@ export class SqliteManifestStore implements ManifestStore {
       readinessResult: row.readiness_result_json
         ? JSON.parse(row.readiness_result_json)
         : undefined,
+      createdAt: row.created_at ?? undefined,
+      updatedAt: row.updated_at ?? undefined,
     };
   }
 
   async saveIndexGeneration(generation: IndexGeneration): Promise<void> {
+    const nowIso = new Date().toISOString();
+    const createdAt = generation.createdAt ?? nowIso;
+    const updatedAt = generation.updatedAt ?? nowIso;
+
     const stmt = this.db.prepare(`
-      INSERT INTO index_runs (generation_id, backend_key, corpus_revision_id, index_profile_hash, state, entry_count, entry_ids_json, readiness_result_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO index_runs (generation_id, backend_key, corpus_revision_id, index_profile_hash, state, entry_count, entry_ids_json, readiness_result_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(generation_id) DO UPDATE SET
         backend_key = excluded.backend_key,
         corpus_revision_id = excluded.corpus_revision_id,
@@ -365,7 +384,8 @@ export class SqliteManifestStore implements ManifestStore {
         state = excluded.state,
         entry_count = excluded.entry_count,
         entry_ids_json = excluded.entry_ids_json,
-        readiness_result_json = excluded.readiness_result_json
+        readiness_result_json = excluded.readiness_result_json,
+        updated_at = excluded.updated_at
     `);
 
     stmt.run(
@@ -377,7 +397,130 @@ export class SqliteManifestStore implements ManifestStore {
       generation.entryCount,
       JSON.stringify(generation.entryIds),
       generation.readinessResult ? JSON.stringify(generation.readinessResult) : null,
+      createdAt,
+      updatedAt,
     );
+  }
+
+  async listIndexGenerations(
+    libraryId: string,
+    versionKey: string,
+    backendKey?: string,
+  ): Promise<IndexGeneration[]> {
+    const stmt = this.db.prepare(`
+      SELECT ir.generation_id, ir.backend_key, ir.corpus_revision_id, ir.index_profile_hash,
+             ir.state, ir.entry_count, ir.entry_ids_json, ir.readiness_result_json,
+             ir.created_at, ir.updated_at
+      FROM index_runs ir
+      JOIN corpus_revisions cr ON ir.corpus_revision_id = cr.corpus_revision_id
+      WHERE cr.library_id = ? AND cr.version_key = ?
+        AND (? IS NULL OR ir.backend_key = ?)
+      ORDER BY COALESCE(ir.created_at, '') DESC
+    `);
+
+    const rows = stmt.all(
+      libraryId,
+      versionKey,
+      backendKey ?? null,
+      backendKey ?? null,
+    ) as Array<{
+      generation_id: string;
+      backend_key: string;
+      corpus_revision_id: string;
+      index_profile_hash: string;
+      state: string;
+      entry_count: number;
+      entry_ids_json: string;
+      readiness_result_json: string | null;
+      created_at: string | null;
+      updated_at: string | null;
+    }>;
+
+    return rows.map((row) => ({
+      generationId: row.generation_id,
+      backendKey: row.backend_key,
+      corpusRevisionId: row.corpus_revision_id,
+      indexProfileHash: row.index_profile_hash,
+      state: row.state as IndexGeneration['state'],
+      entryCount: row.entry_count,
+      entryIds: JSON.parse(row.entry_ids_json) as string[],
+      readinessResult: row.readiness_result_json
+        ? JSON.parse(row.readiness_result_json)
+        : undefined,
+      createdAt: row.created_at ?? undefined,
+      updatedAt: row.updated_at ?? undefined,
+    }));
+  }
+
+  async getPendingIndexRun(
+    libraryId: string,
+    versionKey: string,
+    backendKey?: string,
+  ): Promise<IndexGeneration | null> {
+    const generations = await this.listIndexGenerations(libraryId, versionKey, backendKey);
+    return (
+      generations.find((g) =>
+        ['staging', 'importing', 'verifying', 'readiness_pending'].includes(g.state),
+      ) ?? null
+    );
+  }
+
+  async deleteIndexGeneration(generationId: string): Promise<void> {
+    this.db.prepare(`DELETE FROM index_runs WHERE generation_id = ?`).run(generationId);
+  }
+
+  async hasActiveReadLeases(generationId: string): Promise<boolean> {
+    const nowIso = new Date().toISOString();
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) as count FROM read_leases WHERE generation_id = ? AND expires_at > ?`,
+      )
+      .get(generationId, nowIso) as { count: number } | undefined;
+    return (row?.count ?? 0) > 0;
+  }
+
+  async listEligibleGenerationsForGc(
+    libraryId: string,
+    versionKey: string,
+    minAgeMs: number,
+    backendKey?: string,
+  ): Promise<IndexGeneration[]> {
+    const allGens = await this.listIndexGenerations(libraryId, versionKey, backendKey);
+    const publishedPointer = backendKey
+      ? await this.getPublishedPointer(backendKey, libraryId, versionKey)
+      : null;
+
+    const cutoffTime = Date.now() - minAgeMs;
+    const eligible: IndexGeneration[] = [];
+
+    for (const gen of allGens) {
+      if (gen.state !== 'retired' && gen.state !== 'abandoned') {
+        continue;
+      }
+
+      if (publishedPointer && gen.generationId === publishedPointer.generationId) {
+        continue;
+      }
+
+      if (publishedPointer && gen.generationId === publishedPointer.previousGenerationId) {
+        continue;
+      }
+
+      const timestampStr = gen.updatedAt ?? gen.createdAt;
+      const genTime = timestampStr ? new Date(timestampStr).getTime() : 0;
+      if (genTime > cutoffTime) {
+        continue;
+      }
+
+      const hasLease = await this.hasActiveReadLeases(gen.generationId);
+      if (hasLease) {
+        continue;
+      }
+
+      eligible.push(gen);
+    }
+
+    return eligible;
   }
 
   // Sync Runs

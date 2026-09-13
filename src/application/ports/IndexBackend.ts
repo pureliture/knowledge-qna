@@ -51,5 +51,9 @@ export interface IndexBackend {
   ): Promise<ReadinessResult>;
   publishGeneration(generationId: string, signal?: AbortSignal): Promise<void>;
   retireGeneration(generationId: string, signal?: AbortSignal): Promise<void>;
-  deleteGeneration(generationId: string, signal?: AbortSignal): Promise<void>;
+  deleteGeneration(
+    generationId: string,
+    signal?: AbortSignal,
+    entryIds?: string[],
+  ): Promise<void>;
 }

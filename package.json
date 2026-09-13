@@ -21,6 +21,7 @@
     "clean": "rm -rf dist var/cache"
   },
   "dependencies": {
+    "@google-cloud/discoveryengine": "^3.2.0",
     "@modelcontextprotocol/core": "^2.0.0",
     "@modelcontextprotocol/server": "^2.0.0",
     "better-sqlite3": "^13.0.3",
