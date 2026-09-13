@@ -5,7 +5,7 @@
   - 상세 설계서: [docs/specs/knowledge-qna-mcp/design.md](./docs/specs/knowledge-qna-mcp/design.md)
   - 원본 요청서: [ORIGINAL_REQUEST.md](./ORIGINAL_REQUEST.md)
 - **실행 계약**: agentic-execution
-- **활성 슬라이스 (Active Slice)**: **M2 (Search Adapters, Token Budget & Retrieval Engine - COMPLETED & FULLY VERIFIED)**
+- **활성 슬라이스 (Active Slice)**: **M3 (Google Agent Search Adapter, Index Lifecycle, CLI Operations & Fencing - IN PROGRESS)**
 
 ---
 
@@ -16,7 +16,7 @@
 | **M0** | Project Bootstrap & Stdio MCP Foundation | - Node 24 LTS, ESM, TypeScript strict 기반 부트스트랩<br>- 헥사고날 클린 아키텍처 계층 골격 수립 및 엄격한 디커플링<br>- 정규화 AST 기반 아키텍처 계층 경계 검증 테스트 강화<br>- 호스트 로컬 라이브러리 레지스트리 및 결정론적 매칭 구현<br>- Stdio MCP v2 서버 (`resolve_library`, `get_context`) 및 stdout 무결성 가드<br>- CLI 기본 명령어 (`docsctx serve`, `docsctx doctor`, `-c`, `-v` 지원) | T-01, T-10, Arch Test, Adversarial Tests | **완료 및 검증 완료 (VERIFIED - Gate Passed)** |
 | **M1** | Canonical Corpus & SQLite Manifest Pipeline | - 허용 목록 기반 웹/Sitemap 문서 수집 및 304 조건부 GET<br>- 구조 보존 HTML → Markdown AST 정규화<br>- 표/코드블록 원자성 보존 AST 청킹 엔진<br>- SHA-256 콘텐츠 주소화 파일시스템 저장소 (`var/corpus/`)<br>- SQLite 단일 작성자 임대 및 매니페스트 카탈로그 (`var/manifest/catalog.sqlite`)<br>- `docsctx sync` 파이프라인 구현 | T-02, T-03, T-04, T-05, T-06 | **완료 및 최종 검증 완료 (COMPLETED & VERIFIED - Gate Passed)** |
 | **M2** | Search Adapters, Token Budget & Retrieval Engine | - `SearchBackend` (읽기) 및 `IndexBackend` (색인) 포트 분리<br>- `js-tiktoken` (`cl100k_base`) 컨텍스트 토큰 예산 패킹 엔진<br>- 로컬 청크 수화, 출처(`S1`, `S2`) 매핑 및 검증<br>- 오프라인 테스트 및 복원 검증용 `InMemorySearchAdapter`<br>- `docsctx index`, `docsctx search` 구현 | T-09, T-11, T-12 | **완료 및 최종 검증 완료 (COMPLETED & VERIFIED - Gate Passed)** |
-| **M3** | Google Agent Search, CLI Operations & Benchmark | - Google Agent Search 어댑터 및 ADC 인증<br>- 전체 CLI 명령어 세트 (`docsctx eval`, `docsctx gc`, `docsctx doctor --remote`)<br>- 검색 품질 평가 벤치마크 (Recall, MRR, nDCG, ContextHitRate)<br>- 동시성 임대 펜싱 및 복구 탄력성 검증 | T-13, T-14, T-15 | 대기 |
+| **M3** | Google Agent Search, CLI Operations & Benchmark | - Google Agent Search 어댑터 및 ADC 인증<br>- 전체 CLI 명령어 세트 (`docsctx gc`, `docsctx doctor --remote`, `docsctx index --plan/resume/abandon/rebuild`)<br>- 원격/오프라인 수명 주기 (STAGING → IMPORTING → VERIFYING → READY → PUBLISHED → RETIRED → DELETING → DELETED)<br>- 동시성 임대 펜싱 및 복구 탄력성 검증 (T-07, T-08, T-09, T-14, T-15) | T-07, T-08, T-09, T-14, T-15 | **진행 중 (IN PROGRESS)** |
 
 ---
 
@@ -212,6 +212,115 @@
 
 ### 3. 완료 상태 및 M3 연계
 - M0, M1, M2의 모든 요구사항 및 수용 기준 100% 충족 및 전수 게이트 무결 검증 완료.
-- Sentinel 독립 승리 감사(Victory Audit) 보고 단계로 진입.
+- Milestone M3 활성화.
 
+---
 
+## Gate B0 실측 증거 및 원격 진단 (Gate B0 Findings & Remote Blocker Isolation)
+
+### 1. Palantir Foundry Sitemap 및 HTML 정규화 실측 증거
+- [x] **Sitemap 소스 확인**:
+  - `https://www.palantir.com/sitemap.xml`은 마케팅 전용 sitemap (Foundry URL 0건).
+  - `https://www.palantir.com/robots.txt`에 명시된 `https://www.palantir.com/docs/sitemap.xml`이 공식 문서 sitemap임 확인.
+  - `https://palantir.com/docs/sitemap.xml` -> `https://www.palantir.com/docs/sitemap.xml` (302 redirect), 59건의 `/docs/foundry/` URL 확인 완료.
+  - `config/libraries/palantir-foundry.yaml`의 `sitemapUrls`를 `https://www.palantir.com/docs/sitemap.xml`로, `allowedHosts`에 `palantir.com` 추가 갱신 완료.
+- [x] **HTML 본문 및 Selector 적합성**:
+  - 대표 문서 `https://www.palantir.com/docs/foundry/developers/` (HTTP 200, 268,160 bytes) 실측 결과, 22만 자의 서버 렌더링 텍스트 확인 (빈 JS-shell 아님).
+  - `<main>`/`<article>` 태그 부재 시에도 `HtmlDocumentNormalizer`의 `<body>` 폴백을 통해 9개 정형 헤딩 및 9,123자의 Markdown 추출 성공.
+  - `release-notes` 등 일부 동적 렌더링 컴포넌트(`loading...`) 존재하나 핵심 개발자 문서는 온전한 HTML 보존 확인.
+
+### 2. GCP ADC / Discovery Engine 진단 및 원격 차단 고립 (Remote Blocker Isolation)
+- [x] **진단 사실**:
+  - 계정: `<operator-account>`
+  - 프로젝트: `<gcp-project-id>` (Active, Project # `<gcp-project-number>`)
+  - `discoveryengine.googleapis.com` API 비활성화 상태 (`gcloud services list --enabled` 결과: 0건).
+  - Quota project 미지정 및 지정 시 `PERMISSION_DENIED` 반환 (API 미사용/비활성화).
+  - Data Store, Branch, Serving Config 미존재.
+- [x] **고립 조치**:
+  - 안전 지침에 따라 임의의 API 활성화, 자원 생성, IAM 변경, 쿼터 프로젝트 설정 전면 금지.
+  - B0 Remote Blocker로 공식 고립 기록하고, M3 구현 및 검증은 격리된 Mock/Contract 및 Synthetic Runner 기반 오프라인 100% 검증으로 진행.
+
+---
+
+## M3 상세 작업 내역 및 검증 계획 (Active Slice: M3)
+
+### 1. 작업 범위
+1. **Google Agent Search Adapter (`src/infrastructure/search/google-agent-search/`)**:
+   - `@google-cloud/discoveryengine` SDK 기반 `SearchBackend` (읽기) 및 `IndexBackend` (색인) 구현.
+   - `indexEntryId = 'k' + base32(sha256([generationId, chunkId]))` 정확히 53자리 강제.
+   - 배치 분할: 최대 100건 및 4 MiB 직렬화 크기 상한 적용.
+   - `INCREMENTAL` reconciliation 모드 강제.
+   - `structData.content` 보존 Markdown 직렬화 및 `library_id`, `version_key`, `generation_id` 메타데이터 격리.
+   - LRO operation 폴링 및 상태 추적.
+   - 고정 필터링을 통한 다중 세대/스코프 완전 격리 (타 세대 오염 시 `INDEX_INCONSISTENT`).
+   - `health()`: Secret(토큰, 비공개키) 누출 없는 안전한 진단.
+   - 오프라인 테스트용 Client Seam 제공.
+2. **Index 수명 주기 및 동시성 펜싱 (`IndexUseCase.ts`)**:
+   - `STAGING → IMPORTING → VERIFYING → READY → PUBLISHED → RETIRED → DELETING → DELETED` 전체 수명 주기.
+   - `--plan`: 원격 쓰기 없는 로컬 엔트리/배치 계산 요약 출력.
+   - `--resume <runId>`: 미완료 세대 안전 재개, 최신 리비전 선점 시 `SUPERSEDED` 차단.
+   - `--abandon <runId>`: 미게시 run 안전 포기.
+   - `--rebuild`: 강제 신규 세대 생성.
+   - `--wait-seconds <n>`: 대기 상한 초과 시 `READINESS_PENDING` 기록 및 Exit Code 2.
+3. **원격 엔트리 가비지 컬렉션 (`GarbageCollectionUseCase.ts` & `docsctx gc`)**:
+   - Writer lease 획득 및 단일 작성자 펜싱.
+   - 보호 조건: 현재 게시 세대 보호, 직전 성공 세대 보호, 활성 Read Lease 보호, 진행 중 세대 보호.
+   - 24시간 이상 경과한 RETIRED/ABANDONED 세대만 선별.
+   - 기본 Dry-run, `--apply` 시 `DELETING` 전이 후 물리 삭제 및 `DELETED` 전이.
+4. **CLI 명령어 확장 및 안전 진단**:
+   - `docsctx index <libraryId>`: `--plan`, `--resume`, `--abandon`, `--rebuild`, `--wait-seconds` 지원.
+   - `docsctx gc [libraryId]`: 기본 Dry-run, `--apply` 지원.
+   - `docsctx doctor --remote`: 원격 백엔드 상태 안전 진단 (Secret 0바이트 누출).
+5. **엄격한 게이트 검증 (T-07, T-08, T-09, T-14, T-15)**:
+   - T-07: 풀 제너레이션 저널링, 변경 없는 문서 B 포함, 실패 시 G1 보존, 요청별 단일 세대 고정.
+   - T-08: 부분 배치 재시도, 응답 유실 복구, readiness 타임아웃(Exit 2), publish 전후 crash 복구, resume/abandon.
+   - T-09: 교차 세대/스코프 격리, 변조된 청크 거부 (`INDEX_INCONSISTENT`).
+   - T-14: 인증/권한/쿼터 오류 시 토큰/비밀 누출 0바이트 검증.
+   - T-15: Fencing token 거부, 활성 Read Lease 세대 GC 보호, Current/Previous 세대 GC 보호.
+
+### 2. 검증 증거 (Verification Evidence - M3 Final)
+- [x] TypeScript strict 컴파일: `npm run build` (tsc 엄격 모드 컴파일 에러 0건)
+- [x] 헥사고날 아키텍처 계층 경계 검증: `npm run test:arch` (4/4 테스트 100% 통과, 0 violations)
+- [x] Gate B0 실측 및 원격 차단 고립 테스트:
+  - `test/integration/gate-b0.test.ts` (3/3 통과)
+    - Palantir Sitemap 59건 URL 추출 실측 검증
+    - Palantir Developers 268KB HTML -> 9개 헤딩, 9,123자 Markdown 정규화 실측 검증 (Non-JS shell 증명)
+    - GoogleAgentSearchAdapter ADC 진단 시크릿 누출 0바이트 및 unavailable 격리 검증
+- [x] Google Agent Search Adapter 계약 및 보안 테스트 (Gate T-09, T-14):
+  - `test/contract/google-agent-search-adapter.test.ts` (16/16 통과)
+    - `indexEntryId` 형식(`^k[a-z2-7]{52}$`, 정확히 53자) 강제 및 RFC 4648 Base32 인코딩 검증
+    - 100건 및 4 MiB 직렬화 분할 배치 계산 검증
+    - `INCREMENTAL` reconciliation 모드 강제
+    - LRO 완료 대기, timeout, 부분 실패(errorSamples) 및 배치별 count 처리 검증
+    - `library_id`, `version_key`, `generation_id` 필터링 및 다중 세대 응답 혼입 시 `IndexInconsistentError` 거부
+    - readiness probe의 빈 scope filter 방지
+    - Bearer 토큰, ya29 토큰, PEM 개인키, 서비스 계정 시크릿 0바이트 마스킹 처리 검증
+    - 기록된 entry ID를 사용한 원격 document 삭제 경로 검증
+- [x] Index 수명 주기, 복구 및 동시성 펜싱 테스트 (Gate T-07, T-08):
+  - `test/integration/gate-t07-t08.test.ts` (10/10 통과)
+    - T-07: 풀 제너레이션 격리, 변경 없는 청크 포함, 실패 시 기존 세대 보존, 요청별 단일 세대 고정
+    - T-08: 배치 실패 시 롤백 및 상태 보존, LRO 타임아웃 시 `READINESS_PENDING` 전이 및 비정상 탈출(Exit 2) 검증
+    - T-08: `--plan` 안전 실행(원격 쓰기 0건) 검증
+    - T-08: `--resume` 안전 재개 및 신규 리비전에 의한 선점 시 `SUPERSEDED` 차단 검증
+    - T-08: `--abandon` 수동 포기 및 잠금 해제 검증
+    - T-08: 동시 인덱싱 시도 시 `INDEX_RUN_PENDING` 거부 검증
+    - `--wait-seconds` hanging readiness backend deadline 검증
+- [x] Garbage Collection 수명 주기 및 안전 보호 테스트 (Gate T-15):
+  - `test/integration/gate-t15.test.ts` (5/5 통과)
+    - Writer Lease 획득을 통한 동시 실행 차단 검증
+    - 4대 보호 조건 검증: 현재 게시 세대 보호, 직전 성공 세대 보호, 활성 Read Lease 세대 보호, 진행 중 Run 보호
+    - 24시간 미경과 세대 보호 및 24시간 초과 `retired`/`abandoned` 세대 정상 선별
+    - Dry-run 모드(물리 삭제 없음) 및 `--apply` 모드(DELETING 전이 -> 원격 삭제 -> DELETED 전이) 검증
+- [x] CLI 운영 도구 구동 검증:
+  - `docsctx doctor --remote`
+  - `docsctx index <libraryId> --plan`
+  - `docsctx gc [libraryId] [--apply]`
+  - `doctor --remote`는 기본 InMemory adapter를 원격 성공으로 오인하지 않고 target 미설정 `unavailable`을 보고
+- [x] 전체 회귀 테스트 스위트:
+  - `npm test` (35개 테스트 파일, 354/354 테스트 100% 통과, 0 failures, 0 skipped, 0 expected fail)
+
+### 3. 완료 상태 (Status: OFFLINE VERIFIED / REMOTE BLOCKED)
+- Gate B0 실측 및 원격 차단 고립(Unavailable), M3 Google Agent Search Adapter, 전체 Index 수명 주기/복구, GC Use Case, CLI 운영 확장, 그리고 Gates T-07, T-08, T-09, T-14, T-15의 오프라인/계약 검증을 통과했다 (354/354 테스트).
+- Discovery Engine live verification은 `<gcp-project-id>`에서 API 비활성 및 ADC quota project 미설정으로 차단되어 미완료이다. API 활성화·리소스 생성 없이 blocker를 유지한다.
+- 검증 호스트를 Node `v24.14.1`(npm 11.11.0, Node `>=24.0.0` 요구사항 충족)로 전환하여 독립 검증을 완료했다: build pass, typecheck pass, test:arch pass(4/4), 전체 npm test pass(35개 파일 / 354개 테스트), CLI help 및 doctor pass(doctor --remote는 원격 대상 미설정으로 의도된 fail-closed 유지). 실 GCP 환경 연동 검증은 별도의 remote-blocked 상태를 유지한다.
+- M0, M1, M2는 기존 baseline 완료 상태이고 M3는 오프라인 경로 기준 구현·검증 완료, live GCP activation은 후속 운영 승인 범위다.

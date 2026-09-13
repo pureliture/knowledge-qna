@@ -36,6 +36,16 @@ export interface ManifestStore {
   // Generations
   getIndexGeneration(generationId: string): Promise<IndexGeneration | null>;
   saveIndexGeneration(generation: IndexGeneration): Promise<void>;
+  listIndexGenerations(libraryId: string, versionKey: string, backendKey?: string): Promise<IndexGeneration[]>;
+  getPendingIndexRun(libraryId: string, versionKey: string, backendKey?: string): Promise<IndexGeneration | null>;
+  deleteIndexGeneration(generationId: string): Promise<void>;
+  listEligibleGenerationsForGc(
+    libraryId: string,
+    versionKey: string,
+    minAgeMs: number,
+    backendKey?: string,
+  ): Promise<IndexGeneration[]>;
+  hasActiveReadLeases(generationId: string): Promise<boolean>;
 
   // Sync Runs
   startSyncRun(run: SyncRunRecord): Promise<void>;

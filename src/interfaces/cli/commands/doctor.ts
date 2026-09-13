@@ -11,13 +11,16 @@ import * as path from 'node:path';
 import type { LibraryRegistry } from '../../../application/ports/LibraryRegistry.js';
 import type { ManifestStore } from '../../../application/ports/ManifestStore.js';
 import type { CorpusStore } from '../../../application/ports/CorpusStore.js';
+import type { SearchBackend } from '../../../application/ports/SearchBackend.js';
 
 export interface DoctorCommandOptions {
   libraryRegistry: LibraryRegistry;
   manifestStore?: ManifestStore;
   corpusStore?: CorpusStore;
+  searchBackend?: SearchBackend;
   varRoot: string;
   configDir: string;
+  remote?: boolean;
 }
 
 export interface DoctorCheckResult {
@@ -194,6 +197,32 @@ export async function runDoctorCommand(options: DoctorCommandOptions): Promise<n
         name: 'Profiles Boundary Validation',
         passed: false,
         message: `Profile boundary violations: ${profileViolations.join('; ')}`,
+      });
+    }
+  }
+
+  // Check 7: Remote Search Backend (if --remote specified)
+  if (options.remote) {
+    if (options.searchBackend && options.searchBackend.health) {
+      try {
+        const health = await options.searchBackend.health();
+        checks.push({
+          name: 'Remote Search Backend',
+          passed: health.status === 'ok',
+          message: `[${health.status}] ${health.message ?? 'No message'}`,
+        });
+      } catch (err) {
+        checks.push({
+          name: 'Remote Search Backend',
+          passed: false,
+          message: `Remote health check failed: ${err instanceof Error ? err.message : String(err)}`,
+        });
+      }
+    } else {
+      checks.push({
+        name: 'Remote Search Backend',
+        passed: false,
+        message: 'No remote search backend configured or health probe unsupported',
       });
     }
   }

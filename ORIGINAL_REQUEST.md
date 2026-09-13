@@ -4,7 +4,7 @@
 
 Build the Knowledge QnA MCP (`knowledge-qna-mcp` with CLI `docsctx`), a host-local stdio Model Context Protocol (MCP) server that provides version-aware, cited documentation context to AI coding agents from registered official documentation libraries.
 
-Working directory: `/Users/ddalkak/Projects/knowledge-qna/.worktrees/knowledge-qna-mcp`
+Working directory: `<worktree-path>`
 Integrity mode: development
 Execution contract: agentic-execution (maintain milestones.md, vertical slice progression, requirements-preserving design amendments permitted, strict authority boundaries)
 
@@ -71,7 +71,7 @@ Execution contract: agentic-execution (maintain milestones.md, vertical slice pr
 
 Resume the implementation of Knowledge QnA MCP (`knowledge-qna-mcp` with CLI `docsctx`) from Milestone M1 (Canonical Corpus & SQLite Manifest Pipeline) through M2 (Retrieval Engine & Token Budget), building upon the completed Milestone M0 baseline.
 
-Working directory: `/Users/ddalkak/Projects/knowledge-qna/.worktrees/knowledge-qna-mcp`
+Working directory: `<worktree-path>`
 Integrity mode: development
 Execution contract: agentic-execution (maintain milestones.md, vertical slice progression, requirements-preserving design amendments permitted, strict authority boundaries)
 

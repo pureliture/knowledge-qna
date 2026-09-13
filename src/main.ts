@@ -57,6 +57,9 @@ async function main(): Promise<void> {
       syncUseCase: container.syncUseCase,
       getContextUseCase: container.getContextUseCase,
       indexUseCase: container.indexUseCase,
+      gcUseCase: container.gcUseCase,
+      searchBackend: container.searchBackend,
+      remoteSearchBackend: container.remoteSearchBackend,
       varRoot: container.varRoot,
       configDir: container.configDir,
     };

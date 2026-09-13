@@ -15,13 +15,25 @@ export interface IndexCommandOptions {
   plan?: boolean;
   rebuild?: boolean;
   waitSeconds?: number;
+  resumeRunId?: string;
+  abandonRunId?: string;
 }
 
 export async function runIndexCommand(options: IndexCommandOptions): Promise<number> {
+  const modeStr = options.plan
+    ? ' (plan mode)'
+    : options.resumeRunId
+      ? ` (resume: ${options.resumeRunId})`
+      : options.abandonRunId
+        ? ` (abandon: ${options.abandonRunId})`
+        : options.rebuild
+          ? ' (rebuild mode)'
+          : '';
+
   process.stderr.write(
     `[docsctx index] Starting index for library '${options.libraryId}'${
       options.versionKey ? ` (version: '${options.versionKey}')` : ''
-    }${options.plan ? ' (plan mode)' : ''}...\n`,
+    }${modeStr}...\n`,
   );
 
   try {
@@ -31,9 +43,15 @@ export async function runIndexCommand(options: IndexCommandOptions): Promise<num
       plan: options.plan,
       rebuild: options.rebuild,
       waitSeconds: options.waitSeconds,
+      resumeRunId: options.resumeRunId,
+      abandonRunId: options.abandonRunId,
     });
 
-    if (options.plan) {
+    if (options.abandonRunId) {
+      process.stderr.write(
+        `[docsctx index] Successfully abandoned generation ${result.generationId}.\n`,
+      );
+    } else if (options.plan) {
       process.stderr.write(
         `[docsctx index] Plan calculated: ${result.entryCount} entries across ${result.plan?.batchCount} batches for revision ${result.corpusRevisionId}.\n`,
       );

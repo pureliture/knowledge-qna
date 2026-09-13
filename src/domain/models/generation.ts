@@ -34,6 +34,8 @@ export interface IndexGeneration {
   entryCount: number;
   entryIds: string[];
   readinessResult?: ReadinessResult;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface PublishedPointer {
