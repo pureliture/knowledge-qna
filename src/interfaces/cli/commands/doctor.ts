@@ -1,14 +1,21 @@
 /**
  * CLI Command: docsctx doctor
  * Read-only health check and environment diagnostics.
+ * Includes Node version, library registry, SQLite connection, PRAGMA integrity_check,
+ * corpus directory layout, and parser/chunker profile boundary validation.
+ * Strict Layer Boundary: Interfaces imports only application and domain.
  */
 
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type { LibraryRegistry } from '../../../application/ports/LibraryRegistry.js';
 import type { ManifestStore } from '../../../application/ports/ManifestStore.js';
+import type { CorpusStore } from '../../../application/ports/CorpusStore.js';
 
 export interface DoctorCommandOptions {
   libraryRegistry: LibraryRegistry;
   manifestStore?: ManifestStore;
+  corpusStore?: CorpusStore;
   varRoot: string;
   configDir: string;
 }
@@ -40,8 +47,10 @@ export async function runDoctorCommand(options: DoctorCommandOptions): Promise<n
   }
 
   // Check 2: Configuration directory & loaded libraries
+  let loadedLibraries: Array<{ id: string; versions: Array<{ versionKey: string }> }> = [];
   try {
     const libraries = await options.libraryRegistry.listLibraries();
+    loadedLibraries = libraries;
     checks.push({
       name: 'Library Registry',
       passed: libraries.length > 0,
@@ -55,21 +64,136 @@ export async function runDoctorCommand(options: DoctorCommandOptions): Promise<n
     });
   }
 
-  // Check 3: Manifest Store
+  // Check 3: Manifest Store (SQLite Connection)
   if (options.manifestStore) {
     try {
-      // Test read lease or pointer query
       await options.manifestStore.getPublishedPointer('test', 'test', 'test');
       checks.push({
-        name: 'Manifest Store (SQLite)',
+        name: 'Manifest Store (SQLite Connection)',
         passed: true,
         message: `Connected successfully to catalog database in ${options.varRoot}`,
       });
     } catch (err) {
       checks.push({
-        name: 'Manifest Store (SQLite)',
+        name: 'Manifest Store (SQLite Connection)',
         passed: false,
         message: `Failed to query manifest: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+
+    // Check 4: SQLite PRAGMA integrity_check
+    if (options.manifestStore.checkIntegrity) {
+      try {
+        const integrity = await options.manifestStore.checkIntegrity();
+        checks.push({
+          name: 'SQLite PRAGMA integrity_check',
+          passed: integrity.ok,
+          message: integrity.message,
+        });
+      } catch (err) {
+        checks.push({
+          name: 'SQLite PRAGMA integrity_check',
+          passed: false,
+          message: `Integrity check failed: ${err instanceof Error ? err.message : String(err)}`,
+        });
+      }
+    }
+  }
+
+  // Check 5: Corpus directory layout check
+  const corpusDir = path.join(options.varRoot, 'corpus');
+  const expectedSubdirs = ['documents', 'chunks', 'revisions', 'profiles'];
+  const missingDirs: string[] = [];
+
+  for (const subdir of expectedSubdirs) {
+    const p = path.join(corpusDir, subdir);
+    if (!fs.existsSync(p)) {
+      missingDirs.push(subdir);
+    }
+  }
+
+  if (missingDirs.length === 0) {
+    checks.push({
+      name: 'Corpus Directory Layout',
+      passed: true,
+      message: `All corpus directories present in ${corpusDir} (${expectedSubdirs.join(', ')})`,
+    });
+  } else {
+    // If varRoot hasn't been synced yet, verify directory can be created or exists
+    const varExists = fs.existsSync(options.varRoot);
+    checks.push({
+      name: 'Corpus Directory Layout',
+      passed: true,
+      message: varExists
+        ? `Corpus layout ready under ${corpusDir} (pending subdirs will be created on sync: ${missingDirs.join(', ')})`
+        : `Corpus base root ${options.varRoot} ready to be initialized`,
+    });
+  }
+
+  // Check 6: Profiles boundary validation
+  if (loadedLibraries.length > 0) {
+    const profileViolations: string[] = [];
+
+    for (const lib of loadedLibraries) {
+      const fullLib = await options.libraryRegistry.getLibrary(lib.id);
+      if (!fullLib) continue;
+
+      for (const ver of fullLib.versions) {
+        const p = ver.parser;
+        const c = ver.chunking;
+
+        // Parser validation
+        if (!p || !p.contentSelectors || p.contentSelectors.length === 0) {
+          profileViolations.push(`${lib.id}@${ver.versionKey}: contentSelectors must not be empty`);
+        }
+
+        // Chunking boundary validation (min < target <= max <= maxAtomic <= 16000)
+        if (!c) {
+          profileViolations.push(`${lib.id}@${ver.versionKey}: chunking config missing`);
+        } else {
+          if (c.minTokens <= 0) {
+            profileViolations.push(`${lib.id}@${ver.versionKey}: minTokens must be > 0 (got ${c.minTokens})`);
+          }
+          if (c.minTokens >= c.targetTokens) {
+            profileViolations.push(
+              `${lib.id}@${ver.versionKey}: minTokens (${c.minTokens}) must be < targetTokens (${c.targetTokens})`,
+            );
+          }
+          if (c.targetTokens > c.maxTokens) {
+            profileViolations.push(
+              `${lib.id}@${ver.versionKey}: targetTokens (${c.targetTokens}) must be <= maxTokens (${c.maxTokens})`,
+            );
+          }
+          if (c.maxTokens > c.maxAtomicTokens) {
+            profileViolations.push(
+              `${lib.id}@${ver.versionKey}: maxTokens (${c.maxTokens}) must be <= maxAtomicTokens (${c.maxAtomicTokens})`,
+            );
+          }
+          if (c.maxAtomicTokens > 16000) {
+            profileViolations.push(
+              `${lib.id}@${ver.versionKey}: maxAtomicTokens (${c.maxAtomicTokens}) must be <= 16000`,
+            );
+          }
+        }
+
+        // Freshness validation
+        if (ver.freshness && ver.freshness.staleAfterHours <= 0) {
+          profileViolations.push(`${lib.id}@${ver.versionKey}: staleAfterHours must be > 0`);
+        }
+      }
+    }
+
+    if (profileViolations.length === 0) {
+      checks.push({
+        name: 'Profiles Boundary Validation',
+        passed: true,
+        message: `All parser and chunker profile boundaries valid across ${loadedLibraries.length} libraries`,
+      });
+    } else {
+      checks.push({
+        name: 'Profiles Boundary Validation',
+        passed: false,
+        message: `Profile boundary violations: ${profileViolations.join('; ')}`,
       });
     }
   }

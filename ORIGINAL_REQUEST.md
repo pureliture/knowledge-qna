@@ -66,3 +66,81 @@ Execution contract: agentic-execution (maintain milestones.md, vertical slice pr
 - [ ] Code blocks and tables are preserved atomically in chunks without arbitrary truncation.
 - [ ] Executing `docsctx sync` creates a new corpus revision without modifying published search generation pointers.
 - [ ] Offline test suite demonstrates complete corpus reconstruction and search execution using the in-memory adapter without network access.
+
+## 2026-09-13T03:40:48Z
+
+Resume the implementation of Knowledge QnA MCP (`knowledge-qna-mcp` with CLI `docsctx`) from Milestone M1 (Canonical Corpus & SQLite Manifest Pipeline) through M2 (Retrieval Engine & Token Budget), building upon the completed Milestone M0 baseline.
+
+Working directory: `/Users/ddalkak/Projects/knowledge-qna/.worktrees/knowledge-qna-mcp`
+Integrity mode: development
+Execution contract: agentic-execution (maintain milestones.md, vertical slice progression, requirements-preserving design amendments permitted, strict authority boundaries)
+
+## Reference Specifications
+- Approved Intention Spec: `docs/specs/knowledge-qna-mcp/intention.md`
+- Approved Design Spec: `docs/specs/knowledge-qna-mcp/design.md`
+- Current Milestones & Baseline: `milestones.md` (M0 complete, 87/87 tests passing, commit 41d7bc6)
+
+## Context & Completed Foundation (M0)
+- Hexagonal architecture with domain models, deterministic SHA-256 identity (`identity.ts`), domain errors (`errors.ts`).
+- Stdio MCP v2 server (`resolve_library`, `get_context` stubs) with strict stdout JSON-RPC isolation.
+- AST layer-boundary tests (`test/architecture/layer-boundaries.test.ts`), YAML library registry (`YamlLibraryRegistry.ts`).
+
+## Requirements for Resume (M1 & M2)
+
+### R1. Web / Sitemap Discovery & Incremental Fetching (M1 / T-02, T-03, T-05)
+- Implement `SourceProvider` and `DocumentFetcher` ports under `src/infrastructure/`.
+- Support sitemap parsing (nested index, recursion/cycle limits, max document limits) and static URL sources.
+- WHATWG URL normalization (case, default port, trailing slash policy, strip fragment, `canonicalQueryKeys` sorting).
+- SSRF and security controls: enforce allowed hosts/paths, HTTPS default (disallow private/loopback IP), handle robots.txt rules.
+- HTTP conditional GET: evaluate ETag / Last-Modified, process HTTP 304 as unchanged without re-normalizing.
+- Deletion detection: require 2 consecutive full discovery absences or explicit 404/410; partial discovery failures or timeouts must not trigger document deletion.
+
+### R2. Structure-Preserving Normalizer & Atomic AST Chunker (M1 / T-03, T-04)
+- Implement `DocumentNormalizer`: HTML to Markdown conversion preserving headings, lists, tables, code blocks, language identifiers, and indentation. Remove nav/footer/script/style per parser config.
+- Implement `DocumentChunker`: AST-based chunking respecting heading hierarchy (target 800 tokens, min 200, max 1400 tokens).
+- Code blocks and tables must be preserved as atomic units without mid-block fragmentation.
+- Support oversized atomic units up to 16,000 tokens with `oversized: true`. Source documents exceeding 16,000 tokens fail with `DOCUMENT_TOO_LARGE`.
+- Generate deterministic `snapshotId` and `chunkId` using SHA-256 per design spec §5.1.
+
+### R3. Content-Addressable Corpus & SQLite Manifest Store (M1 / T-06)
+- Implement `FilesystemCorpusStore` managing `var/corpus/`:
+  - `documents/<documentId>/<snapshotId>.json`
+  - `chunks/<chunkerProfileId>/<snapshotId>.jsonl`
+  - `revisions/<corpusRevisionId>.json`
+  - `profiles/<profileId>.json`
+- Implement `SqliteManifestStore` (`var/manifest/catalog.sqlite`):
+  - Track `sync_runs`, `fetch_observations`, `corpus_revisions`, `writer_leases`.
+  - Single-writer lease with fencing token (30s lease, 10s renew).
+  - Atomicity: atomic file flush & rename before committing SQLite transaction.
+- Separation of sync and index: `docsctx sync` builds complete immutable corpus revision without publishing or altering search generation pointers.
+
+### R4. Context Packing & In-Memory Retrieval Pipeline (M2 / T-09, T-11, T-12)
+- Implement context packing engine using `js-tiktoken` (`cl100k_base`) enforcing `maxTokens` budget (default 6,000).
+- Hydrate candidate search hits into canonical local chunks, verifying corpus membership and content hash.
+- Map citations one-to-one (`S1`, `S2`...) with valid titles, official URLs (with validated anchors), and heading paths.
+- Handle `TOKEN_BUDGET_EXCEEDED`, `truncated: true`, and empty search `status: "no_matches"`.
+- Implement and test `InMemorySearchAdapter` enabling full offline corpus reconstruction and retrieval verification (T-12).
+
+### R5. CLI Integration & Doctor Diagnostics (I-013)
+- Implement `docsctx sync <libraryId>` CLI command supporting `--version`, reporting run summary and new revision ID.
+- Enhance `docsctx doctor` to validate corpus directory, SQLite manifest integrity, and parser profiles.
+
+## Acceptance Criteria
+
+### Build & Integrity Gates
+- [ ] `npm run build` compiles clean with zero TypeScript errors.
+- [ ] All 87 existing tests continue to pass.
+- [ ] Architecture boundary tests (`npm run test:arch`) pass without any new illegal layer imports.
+- [ ] `milestones.md` is updated to record M1 progress, active slice state, and verification evidence.
+
+### Pipeline & Normalization Gates (T-02 ~ T-06)
+- [ ] Sitemap cycle/depth/host enforcement correctly rejects out-of-scope URLs and private IPs (T-02).
+- [ ] Conditional GET (304) and identical content hashes reuse existing snapshot/chunk IDs deterministically (T-03).
+- [ ] Code blocks and tables remain atomic in output chunks without arbitrary truncation (T-04).
+- [ ] Partial fetch failures or timeouts do NOT cause document deletion (T-05).
+- [ ] Running `docsctx sync` creates a new immutable revision while search published pointer remains untouched (T-06).
+
+### Retrieval & Budget Gates (T-09, T-11, T-12)
+- [ ] In-memory search adapter verifies complete offline corpus reconstruction and search round-trip (T-12).
+- [ ] Context packing strictly honors `maxTokens` budget and formats validated citations (`S1`, `S2`...) correctly (T-11).
+

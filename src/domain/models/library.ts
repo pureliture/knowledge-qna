@@ -12,6 +12,7 @@ export interface VersionSource {
   excludePaths?: string[];
   canonicalQueryKeys?: string[];
   collectionAllowed: boolean;
+  allowHttp?: boolean;
 }
 
 export interface ParserConfig {

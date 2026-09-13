@@ -44,4 +44,5 @@ export interface FetchObservation {
   rawHash?: string;
   ETag?: string;
   LastModified?: string;
+  consecutiveAbsences?: number;
 }

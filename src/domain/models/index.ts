@@ -4,3 +4,4 @@ export * from './chunk.js';
 export * from './corpus.js';
 export * from './generation.js';
 export * from './search.js';
+export * from './sync.js';

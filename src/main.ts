@@ -54,6 +54,9 @@ async function main(): Promise<void> {
       mcpServer: container.mcpServer,
       libraryRegistry: container.libraryRegistry,
       manifestStore: container.manifestStore,
+      syncUseCase: container.syncUseCase,
+      getContextUseCase: container.getContextUseCase,
+      indexUseCase: container.indexUseCase,
       varRoot: container.varRoot,
       configDir: container.configDir,
     };
