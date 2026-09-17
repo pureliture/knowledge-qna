@@ -5,7 +5,7 @@
   - 상세 설계서: [docs/specs/knowledge-qna-mcp/design.md](./docs/specs/knowledge-qna-mcp/design.md)
   - 원본 요청서: [ORIGINAL_REQUEST.md](./ORIGINAL_REQUEST.md)
 - **실행 계약**: agentic-execution
-- **활성 슬라이스 (Active Slice)**: **M3 (Google Agent Search Adapter, Index Lifecycle, CLI Operations & Fencing - IN PROGRESS)**
+- **활성 슬라이스 (Active Slice)**: **M3 (Google Agent Search Adapter, Index Lifecycle, CLI Operations & Fencing - COMPLETED & OFFLINE VERIFIED / REMOTE BLOCKED)**
 
 ---
 
@@ -16,7 +16,8 @@
 | **M0** | Project Bootstrap & Stdio MCP Foundation | - Node 24 LTS, ESM, TypeScript strict 기반 부트스트랩<br>- 헥사고날 클린 아키텍처 계층 골격 수립 및 엄격한 디커플링<br>- 정규화 AST 기반 아키텍처 계층 경계 검증 테스트 강화<br>- 호스트 로컬 라이브러리 레지스트리 및 결정론적 매칭 구현<br>- Stdio MCP v2 서버 (`resolve_library`, `get_context`) 및 stdout 무결성 가드<br>- CLI 기본 명령어 (`docsctx serve`, `docsctx doctor`, `-c`, `-v` 지원) | T-01, T-10, Arch Test, Adversarial Tests | **완료 및 검증 완료 (VERIFIED - Gate Passed)** |
 | **M1** | Canonical Corpus & SQLite Manifest Pipeline | - 허용 목록 기반 웹/Sitemap 문서 수집 및 304 조건부 GET<br>- 구조 보존 HTML → Markdown AST 정규화<br>- 표/코드블록 원자성 보존 AST 청킹 엔진<br>- SHA-256 콘텐츠 주소화 파일시스템 저장소 (`var/corpus/`)<br>- SQLite 단일 작성자 임대 및 매니페스트 카탈로그 (`var/manifest/catalog.sqlite`)<br>- `docsctx sync` 파이프라인 구현 | T-02, T-03, T-04, T-05, T-06 | **완료 및 최종 검증 완료 (COMPLETED & VERIFIED - Gate Passed)** |
 | **M2** | Search Adapters, Token Budget & Retrieval Engine | - `SearchBackend` (읽기) 및 `IndexBackend` (색인) 포트 분리<br>- `js-tiktoken` (`cl100k_base`) 컨텍스트 토큰 예산 패킹 엔진<br>- 로컬 청크 수화, 출처(`S1`, `S2`) 매핑 및 검증<br>- 오프라인 테스트 및 복원 검증용 `InMemorySearchAdapter`<br>- `docsctx index`, `docsctx search` 구현 | T-09, T-11, T-12 | **완료 및 최종 검증 완료 (COMPLETED & VERIFIED - Gate Passed)** |
-| **M3** | Google Agent Search, CLI Operations & Benchmark | - Google Agent Search 어댑터 및 ADC 인증<br>- 전체 CLI 명령어 세트 (`docsctx gc`, `docsctx doctor --remote`, `docsctx index --plan/resume/abandon/rebuild`)<br>- 원격/오프라인 수명 주기 (STAGING → IMPORTING → VERIFYING → READY → PUBLISHED → RETIRED → DELETING → DELETED)<br>- 동시성 임대 펜싱 및 복구 탄력성 검증 (T-07, T-08, T-09, T-14, T-15) | T-07, T-08, T-09, T-14, T-15 | **진행 중 (IN PROGRESS)** |
+| **M3** | Google Agent Search, CLI Operations & Benchmark | - Google Agent Search 어댑터 및 ADC 인증<br>- 전체 CLI 명령어 세트 (`docsctx gc`, `docsctx doctor --remote`, `docsctx index --plan/resume/abandon/rebuild`)<br>- 원격/오프라인 수명 주기 (STAGING → IMPORTING → VERIFYING → READY → PUBLISHED → RETIRED → DELETING → DELETED)<br>- 동시성 임대 펜싱 및 복구 탄력성 검증 (T-07, T-08, T-09, T-14, T-15) | T-07, T-08, T-09, T-14, T-15 | **완료 및 오프라인 검증 완료 (OFFLINE VERIFIED / REMOTE BLOCKED - Gate Passed)** |
+
 
 ---
 
@@ -319,8 +320,17 @@
 - [x] 전체 회귀 테스트 스위트:
   - `npm test` (35개 테스트 파일, 354/354 테스트 100% 통과, 0 failures, 0 skipped, 0 expected fail)
 
-### 3. 완료 상태 (Status: OFFLINE VERIFIED / REMOTE BLOCKED)
+### 3. 완료 상태 (Status: OFFLINE VERIFIED / REMOTE BLOCKED - Gate Passed)
 - Gate B0 실측 및 원격 차단 고립(Unavailable), M3 Google Agent Search Adapter, 전체 Index 수명 주기/복구, GC Use Case, CLI 운영 확장, 그리고 Gates T-07, T-08, T-09, T-14, T-15의 오프라인/계약 검증을 통과했다 (354/354 테스트).
-- Discovery Engine live verification은 `<gcp-project-id>`에서 API 비활성 및 ADC quota project 미설정으로 차단되어 미완료이다. API 활성화·리소스 생성 없이 blocker를 유지한다.
-- 검증 호스트를 Node `v24.14.1`(npm 11.11.0, Node `>=24.0.0` 요구사항 충족)로 전환하여 독립 검증을 완료했다: build pass, typecheck pass, test:arch pass(4/4), 전체 npm test pass(35개 파일 / 354개 테스트), CLI help 및 doctor pass(doctor --remote는 원격 대상 미설정으로 의도된 fail-closed 유지). 실 GCP 환경 연동 검증은 별도의 remote-blocked 상태를 유지한다.
+- Discovery Engine live verification은 GCP 프로젝트 `gemini-api-498422`에서 API 비활성(`discoveryengine.googleapis.com` 0건) 및 권한 부재로 차단되어 미완료이다. 안전 지침 및 권한 경계에 따라 임의의 API 활성화·리소스 생성 없이 blocker를 고립 유지한다.
+- 2026-09-17 Antigravity 독립 세션 검증(`.worktrees/m3-google-agent-search`, branch `antigravity/m3-google-agent-search`, Node `v24.14.1`, npm 11.11.0):
+  - `npm run build`: Clean pass (0 TS errors)
+  - `npm run test:arch`: 4/4 pass (0 layer boundary violations)
+  - `test/integration/gate-b0.test.ts`: 3/3 pass (Palantir live sitemap & HTML normalization, GCP ADC secret leakage 0-byte isolation)
+  - `test/contract/google-agent-search-adapter.test.ts`: 16/16 pass (53-char indexEntryId, batch splitting, T-09 cross-generation isolation, T-14 secret sanitization)
+  - `test/integration/gate-t07-t08.test.ts`: 10/10 pass (T-07 full generation journaling, T-08 resume/abandon/pending/timeout)
+  - `test/integration/gate-t15.test.ts`: 5/5 pass (T-15 writer lease, 4-way GC protections, dry-run vs apply)
+  - 전체 회귀 테스트: `npm test` 35개 테스트 파일, 354/354 테스트 100% 통과 (0 failures, 0 skipped)
+  - CLI 구동 검증: `docsctx doctor` (HEALTHY), `docsctx doctor --remote` (unavailable fail-closed 격리 확인), `docsctx index --help`, `docsctx gc --help`
 - M0, M1, M2는 기존 baseline 완료 상태이고 M3는 오프라인 경로 기준 구현·검증 완료, live GCP activation은 후속 운영 승인 범위다.
+

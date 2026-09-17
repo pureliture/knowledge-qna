@@ -144,3 +144,48 @@ Execution contract: agentic-execution (maintain milestones.md, vertical slice pr
 - [ ] In-memory search adapter verifies complete offline corpus reconstruction and search round-trip (T-12).
 - [ ] Context packing strictly honors `maxTokens` budget and formats validated citations (`S1`, `S2`...) correctly (T-11).
 
+## 2026-09-17T13:13:15Z
+
+B0 선행 실증 및 Milestone M3(Google Agent Search 어댑터 & 색인 수명 주기) 구현을 진행.
+
+Working directory: `.worktrees/m3-google-agent-search` (branch: `antigravity/m3-google-agent-search`)
+Integrity mode: development
+Execution contract: agentic-execution (maintain milestones.md, vertical slice progression, requirements-preserving design amendments permitted, strict authority boundaries)
+
+## Reference Specifications
+- Approved Intention Spec: `docs/specs/knowledge-qna-mcp/intention.md`
+- Approved Design Spec: `docs/specs/knowledge-qna-mcp/design.md` (§6 색인/수명주기, §8 Google 어댑터, §11 CLI, §12 검증 시나리오)
+- Current Milestones & Baseline: `milestones.md` (M0/M1/M2 complete, 320/320 tests passing, commit bbf8f7f)
+
+## Requirements for M3
+
+### Gate B0. Real Source & GCP Environment Pre-verification
+- Palantir Foundry source verification: live fetch & normalization smoke over `config/libraries/palantir-foundry.yaml` sitemap & representative documents, non-JS-shell proof.
+- GCP Discovery Engine / Agent Search environment check: ADC validity, data store / branch / serving config connectivity & permissions check (isolate remote blockers without modifying GCP resources).
+
+### R1. Google Agent Search Adapter (`src/infrastructure/search/google-agent-search/`)
+- `@google-cloud/discoveryengine` SDK based `SearchBackend` (read) & `IndexBackend` (write).
+- Strict 53-char `indexEntryId` specification: `k` + SHA-256 base32 encoding.
+- Inline batch import (max 100 entries / 4 MiB limit), `INCREMENTAL` reconciliation mode, LRO monitoring & status tracking.
+- Google `structData.content` mapping & multi-tenant generation filter isolation (`library_id`, `version_key`, `generation_id`).
+- Safe diagnostic `health()` with zero token/secret leakage.
+
+### R2. Index Lifecycle & Resilience (Gates T-07, T-08, T-15)
+- Lifecycle state transitions: `STAGING → IMPORTING → VERIFYING → READY → PUBLISHED → RETIRED → DELETING → DELETED`.
+- `IndexBackend.verify` readiness probe with query & expectedChunkIds matching.
+- CLI operations: `docsctx index <libraryId>`, `--plan`, `--resume <runId>`, `--abandon <runId>`, `--rebuild`, `--wait-seconds <n>`.
+- Concurrency single-writer lease fencing & crash recovery.
+
+### R3. Garbage Collection & Operational Diagnostics (Gates T-14, T-15)
+- `docsctx gc [libraryId]` (default dry-run) and `--apply` (protect active/previous/leased/in-progress generations, prune RETIRED/ABANDONED older than 24h).
+- `docsctx doctor --remote` (remote data store schema, IAM permissions, serving config health check with fail-closed isolation).
+
+## Acceptance Criteria
+- [ ] `npm run build` compiles clean with zero TypeScript errors.
+- [ ] Architecture tests (`npm run test:arch`) maintain 100% layer boundary integrity (0 violations).
+- [ ] All 320 baseline tests pass + M3 contract/integration/adversarial tests pass (354/354).
+- [ ] Gates T-07, T-08, T-09, T-14, T-15 scenario verification pass.
+- [ ] Gate B0 live source smoke and GCP ADC remote blocker isolation verified.
+- [ ] `milestones.md` updated with M3 status and verification evidence.
+
+
