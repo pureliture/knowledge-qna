@@ -66,17 +66,22 @@ export class GoogleAgentSearchAdapter implements SearchBackend, IndexBackend {
     },
   ) {
     this.config = {
-      location: 'global',
-      collectionId: 'default_collection',
-      servingConfigId: 'default_search',
-      branchId: 'default_branch',
-      pageSize: 20,
-      maxBatchSizeBytes: 4 * 1024 * 1024, // 4 MiB
-      maxBatchCount: 100,
-      lroPollIntervalMs: 1000,
-      lroTimeoutMs: 60000,
+      location: config.location || 'global',
+      collectionId: config.collectionId || 'default_collection',
+      servingConfigId: config.servingConfigId || 'default_search',
+      branchId: config.branchId || 'default_branch',
+      pageSize: config.pageSize ?? 20,
+      maxBatchSizeBytes: config.maxBatchSizeBytes ?? 4 * 1024 * 1024, // 4 MiB
+      maxBatchCount: config.maxBatchCount ?? 100,
+      lroPollIntervalMs: config.lroPollIntervalMs ?? 1000,
+      lroTimeoutMs: config.lroTimeoutMs ?? 60000,
       ...config,
     };
+    this.config.location = this.config.location || 'global';
+    this.config.collectionId = this.config.collectionId || 'default_collection';
+    this.config.servingConfigId = this.config.servingConfigId || 'default_search';
+    this.config.branchId = this.config.branchId || 'default_branch';
+
 
     if (!this.config.projectId) {
       throw new BackendMisconfiguredError("Google Agent Search requires 'projectId' in configuration.");

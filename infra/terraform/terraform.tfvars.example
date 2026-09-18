@@ -1,0 +1,6 @@
+project_id              = "your-gcp-project-id"
+location                = "global"
+data_store_id           = "knowledge-qna-ds"
+data_store_display_name = "Knowledge QnA Data Store"
+search_engine_id        = "knowledge-qna-engine"
+search_engine_display_name = "Knowledge QnA Search Engine"

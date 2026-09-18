@@ -22,12 +22,28 @@ import {
   computeSnapshotId,
 } from '../../domain/identity.js';
 import { CliOperationError } from '../../domain/errors.js';
+import { OpenApiNormalizer } from './OpenApiNormalizer.js';
 
 export class HtmlDocumentNormalizer implements DocumentNormalizer {
   readonly profileId: string;
+  private readonly openApiNormalizer: OpenApiNormalizer;
 
   constructor(profileId: string = 'html-normalizer-v1') {
     this.profileId = profileId;
+    this.openApiNormalizer = new OpenApiNormalizer('openapi-normalizer-v1');
+  }
+
+  async normalizeMany(input: NormalizeInput): Promise<NormalizedDocument[]> {
+    const trimmed = input.html.trim();
+    if (trimmed.startsWith('{') && (trimmed.includes('"openapi"') || trimmed.includes('"paths"'))) {
+      return this.openApiNormalizer.normalizeSpec({
+        libraryId: input.libraryId,
+        versionKey: input.versionKey,
+        specUrl: input.canonicalUrl,
+        jsonContent: input.html,
+      });
+    }
+    return [await this.normalize(input)];
   }
 
   async normalize(input: NormalizeInput): Promise<NormalizedDocument> {

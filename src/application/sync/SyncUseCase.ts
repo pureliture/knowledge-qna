@@ -566,92 +566,108 @@ export class SyncUseCase {
       return;
     }
 
-    // 2. Normalize HTML
-    const normalizedDoc = await this.documentNormalizer.normalize({
-      libraryId,
-      versionKey,
-      canonicalUrl,
-      html: fetchRes.rawBody,
-      parserConfig: versionConfig.parser,
-      normalizerProfileId: this.documentNormalizer.profileId,
-    });
+    // 2. Normalize documents (single or multiple if specification)
+    const normalizedDocs = this.documentNormalizer.normalizeMany
+      ? await this.documentNormalizer.normalizeMany({
+          libraryId,
+          versionKey,
+          canonicalUrl,
+          html: fetchRes.rawBody,
+          parserConfig: versionConfig.parser,
+          normalizerProfileId: this.documentNormalizer.profileId,
+        })
+      : [
+          await this.documentNormalizer.normalize({
+            libraryId,
+            versionKey,
+            canonicalUrl,
+            html: fetchRes.rawBody,
+            parserConfig: versionConfig.parser,
+            normalizerProfileId: this.documentNormalizer.profileId,
+          }),
+        ];
 
-    // 3. Normalized hash comparison (nav/ad changes only)
-    let prevSnap: NormalizedDocument | null = null;
-    if (prevDoc) {
-      prevSnap = await this.corpusStore.getDocument(docId, prevDoc.snapshotId);
-    }
+    for (const normalizedDoc of normalizedDocs) {
+      const currentDocId = normalizedDoc.documentId;
+      const currentPrevDoc = currentDocId === docId ? prevDoc : undefined;
 
-    if (prevSnap && prevSnap.normalizedHash === normalizedDoc.normalizedHash && prevDoc) {
-      // Content identical after normalization: reuse snapshot and chunk IDs or rechunk! (Gate T-03)
-      const docEntry = await this.resolveDocEntry(
-        docId,
-        prevDoc.snapshotId,
-        prevDoc,
-        versionConfig,
-        onUnchanged,
-        onStored,
+      // 3. Normalized hash comparison (nav/ad changes only)
+      let prevSnap: NormalizedDocument | null = null;
+      if (currentPrevDoc) {
+        prevSnap = await this.corpusStore.getDocument(currentDocId, currentPrevDoc.snapshotId);
+      }
+
+      if (prevSnap && prevSnap.normalizedHash === normalizedDoc.normalizedHash && currentPrevDoc) {
+        // Content identical after normalization: reuse snapshot and chunk IDs or rechunk! (Gate T-03)
+        const docEntry = await this.resolveDocEntry(
+          currentDocId,
+          currentPrevDoc.snapshotId,
+          currentPrevDoc,
+          versionConfig,
+          onUnchanged,
+          onStored,
+        );
+        nextDocEntries.set(currentDocId, docEntry);
+        await this.manifestStore.recordObservation({
+          runId,
+          documentId: currentDocId,
+          snapshotId: currentPrevDoc.snapshotId,
+          requestedUrl: canonicalUrl,
+          fetchedUrl: fetchRes.fetchedUrl,
+          status: 200,
+          lastCheckedAt: new Date().toISOString(),
+          fetchedAt: fetchRes.fetchedAt,
+          rawHash: fetchRes.rawHash,
+          ETag: fetchRes.eTag ?? prevObs?.ETag,
+          LastModified: fetchRes.lastModified ?? prevObs?.LastModified,
+          consecutiveAbsences: 0,
+        });
+        continue;
+      }
+
+      // 4. Real content change or brand new document
+      // Save normalized document to CorpusStore
+      await this.corpusStore.saveDocument(normalizedDoc);
+
+      // Chunk document using AST chunker
+      const chunks = await this.documentChunker.chunk({
+        document: normalizedDoc,
+        config: versionConfig.chunking,
+        chunkerProfileId: this.documentChunker.profileId,
+      });
+
+      // Save chunks to CorpusStore
+      await this.corpusStore.saveChunks(
+        this.documentChunker.profileId,
+        normalizedDoc.snapshotId,
+        chunks,
       );
-      nextDocEntries.set(docId, docEntry);
+      onStored();
+
+      const chunkIds = chunks.map((c) => c.chunkId);
+      const docEntry: CorpusDocumentEntry = {
+        documentId: currentDocId,
+        snapshotId: normalizedDoc.snapshotId,
+        chunkerProfileId: this.documentChunker.profileId,
+        chunkIds,
+      };
+      nextDocEntries.set(currentDocId, docEntry);
+
       await this.manifestStore.recordObservation({
         runId,
-        documentId: docId,
-        snapshotId: prevDoc.snapshotId,
+        documentId: currentDocId,
+        snapshotId: normalizedDoc.snapshotId,
         requestedUrl: canonicalUrl,
         fetchedUrl: fetchRes.fetchedUrl,
         status: 200,
         lastCheckedAt: new Date().toISOString(),
         fetchedAt: fetchRes.fetchedAt,
         rawHash: fetchRes.rawHash,
-        ETag: fetchRes.eTag ?? prevObs?.ETag,
-        LastModified: fetchRes.lastModified ?? prevObs?.LastModified,
+        ETag: fetchRes.eTag,
+        LastModified: fetchRes.lastModified,
         consecutiveAbsences: 0,
       });
-      return;
     }
-
-    // 4. Real content change or brand new document
-    // Save normalized document to CorpusStore
-    await this.corpusStore.saveDocument(normalizedDoc);
-
-    // Chunk document using AST chunker
-    const chunks = await this.documentChunker.chunk({
-      document: normalizedDoc,
-      config: versionConfig.chunking,
-      chunkerProfileId: this.documentChunker.profileId,
-    });
-
-    // Save chunks to CorpusStore
-    await this.corpusStore.saveChunks(
-      this.documentChunker.profileId,
-      normalizedDoc.snapshotId,
-      chunks,
-    );
-    onStored();
-
-    const chunkIds = chunks.map((c) => c.chunkId);
-    const docEntry: CorpusDocumentEntry = {
-      documentId: docId,
-      snapshotId: normalizedDoc.snapshotId,
-      chunkerProfileId: this.documentChunker.profileId,
-      chunkIds,
-    };
-    nextDocEntries.set(docId, docEntry);
-
-    await this.manifestStore.recordObservation({
-      runId,
-      documentId: docId,
-      snapshotId: normalizedDoc.snapshotId,
-      requestedUrl: canonicalUrl,
-      fetchedUrl: fetchRes.fetchedUrl,
-      status: 200,
-      lastCheckedAt: new Date().toISOString(),
-      fetchedAt: fetchRes.fetchedAt,
-      rawHash: fetchRes.rawHash,
-      ETag: fetchRes.eTag,
-      LastModified: fetchRes.lastModified,
-      consecutiveAbsences: 0,
-    });
   }
 
   private async resolveDocEntry(

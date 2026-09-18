@@ -58,7 +58,84 @@ export interface AppContainerConfig {
   remoteSearchBackend?: SearchBackend;
 }
 
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+
+function loadDotEnv(): void {
+  const envPath = path.resolve(process.cwd(), '.env');
+  if (fs.existsSync(envPath)) {
+    try {
+      const content = fs.readFileSync(envPath, 'utf-8');
+      const lines = content.split('\n');
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const eqIdx = trimmed.indexOf('=');
+        if (eqIdx > 0) {
+          const key = trimmed.slice(0, eqIdx).trim();
+          let val = trimmed.slice(eqIdx + 1).trim();
+          if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+            val = val.slice(1, -1);
+          }
+          if (!process.env[key]) {
+            process.env[key] = val;
+          }
+        }
+      }
+    } catch {
+      // Ignore .env read errors
+    }
+  }
+}
+
+function resolveAdcCredentials(): void {
+
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    return;
+  }
+
+  const gcloudDir = path.join(os.homedir(), '.config', 'gcloud');
+
+  // 1. Explicit account env var
+  const targetAccount = process.env.GOOGLE_AGENT_SEARCH_ACCOUNT;
+  if (targetAccount) {
+    const candidate = path.join(gcloudDir, 'legacy_credentials', targetAccount, 'adc.json');
+    if (fs.existsSync(candidate)) {
+      process.env.GOOGLE_APPLICATION_CREDENTIALS = candidate;
+      return;
+    }
+  }
+
+  // 2. Read active gcloud account
+  try {
+    const activeConfigPath = path.join(gcloudDir, 'active_config');
+    if (fs.existsSync(activeConfigPath)) {
+      const activeConfig = fs.readFileSync(activeConfigPath, 'utf-8').trim();
+      const configFile = path.join(gcloudDir, 'configurations', `config_${activeConfig}`);
+      if (fs.existsSync(configFile)) {
+        const lines = fs.readFileSync(configFile, 'utf-8').split('\n');
+        for (const line of lines) {
+          const match = line.match(/^\s*account\s*=\s*(.+)$/);
+          if (match && match[1]) {
+            const account = match[1].trim();
+            const candidate = path.join(gcloudDir, 'legacy_credentials', account, 'adc.json');
+            if (fs.existsSync(candidate)) {
+              process.env.GOOGLE_APPLICATION_CREDENTIALS = candidate;
+              return;
+            }
+          }
+        }
+      }
+    }
+  } catch {
+    // Ignore fallback errors and let default ADC discovery proceed
+  }
+}
+
 function createConfiguredGoogleBackend(): GoogleAgentSearchAdapter | undefined {
+  loadDotEnv();
+  resolveAdcCredentials();
+
   const projectId = process.env.GOOGLE_AGENT_SEARCH_PROJECT_ID ?? process.env.GOOGLE_CLOUD_PROJECT;
   const dataStoreId = process.env.GOOGLE_AGENT_SEARCH_DATA_STORE_ID;
   if (!projectId || !dataStoreId) {
@@ -68,13 +145,14 @@ function createConfiguredGoogleBackend(): GoogleAgentSearchAdapter | undefined {
   const config: GoogleAgentSearchConfig = {
     projectId,
     dataStoreId,
-    location: process.env.GOOGLE_AGENT_SEARCH_LOCATION,
-    collectionId: process.env.GOOGLE_AGENT_SEARCH_COLLECTION_ID,
-    branchId: process.env.GOOGLE_AGENT_SEARCH_BRANCH_ID,
-    servingConfigId: process.env.GOOGLE_AGENT_SEARCH_SERVING_CONFIG_ID,
+    location: process.env.GOOGLE_AGENT_SEARCH_LOCATION || 'global',
+    collectionId: process.env.GOOGLE_AGENT_SEARCH_COLLECTION_ID || 'default_collection',
+    branchId: process.env.GOOGLE_AGENT_SEARCH_BRANCH_ID || 'default_branch',
+    servingConfigId: process.env.GOOGLE_AGENT_SEARCH_SERVING_CONFIG_ID || 'default_search',
   };
   return new GoogleAgentSearchAdapter(config);
 }
+
 
 function isIndexBackend(value: SearchBackend | IndexBackend): value is IndexBackend {
   return (
@@ -122,10 +200,10 @@ export class AppContainer {
       config.manifestStore ??
       new SqliteManifestStore(path.join(this.varRoot, 'manifest/catalog.sqlite'));
     this.libraryRegistry = config.libraryRegistry ?? new YamlLibraryRegistry(this.configDir);
-    this.backendKey = config.backendKey ?? 'in-memory-search-adapter';
-
-    const defaultAdapter = new InMemorySearchAdapter(this.backendKey);
     const googleBackend = createConfiguredGoogleBackend();
+    this.backendKey =
+      config.backendKey ?? (googleBackend ? 'google-agent-search' : 'in-memory-search-adapter');
+    const defaultAdapter = new InMemorySearchAdapter(this.backendKey);
     this.remoteSearchBackend =
       config.remoteSearchBackend ??
       googleBackend ??
