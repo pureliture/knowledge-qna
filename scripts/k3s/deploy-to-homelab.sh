@@ -27,5 +27,8 @@ KUBECONFIG="$KUBECONFIG_PATH" kubectl rollout restart deployment/knowledge-qna-m
 echo "[*] Waiting for MCP server deployment rollout..."
 KUBECONFIG="$KUBECONFIG_PATH" kubectl rollout status deployment/knowledge-qna-mcp-server -n knowledge-qna --timeout=60s || true
 
+echo "[*] Ensuring Tailscale Serve HTTPS proxy on port 30443..."
+ssh "$TARGET_HOST" "sudo tailscale serve --bg --https 30443 http://127.0.0.1:30080"
+
 echo "[ok] Deployment complete! Checking resources in knowledge-qna:"
 KUBECONFIG="$KUBECONFIG_PATH" kubectl get all -n knowledge-qna
