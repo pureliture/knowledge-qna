@@ -200,10 +200,10 @@ export class AppContainer {
       config.manifestStore ??
       new SqliteManifestStore(path.join(this.varRoot, 'manifest/catalog.sqlite'));
     this.libraryRegistry = config.libraryRegistry ?? new YamlLibraryRegistry(this.configDir);
-    this.backendKey = config.backendKey ?? 'in-memory-search-adapter';
-
-    const defaultAdapter = new InMemorySearchAdapter(this.backendKey);
     const googleBackend = createConfiguredGoogleBackend();
+    this.backendKey =
+      config.backendKey ?? (googleBackend ? 'google-agent-search' : 'in-memory-search-adapter');
+    const defaultAdapter = new InMemorySearchAdapter(this.backendKey);
     this.remoteSearchBackend =
       config.remoteSearchBackend ??
       googleBackend ??

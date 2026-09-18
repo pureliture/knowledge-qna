@@ -1,0 +1,85 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: knowledge-qna-cron
+  namespace: knowledge-qna
+spec:
+  schedule: "*/15 * * * *"  # Run every 15 minutes
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          nodeSelector:
+            kubernetes.io/hostname: homelab
+          restartPolicy: OnFailure
+          containers:
+            - name: sync-and-index
+              image: node:24-bookworm-slim
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -euo pipefail
+                  echo "[*] Checking and installing prerequisites..."
+                  apt-get update -qq && apt-get install -y -qq build-essential python3 curl ca-certificates git > /dev/null
+
+                  if ! command -v uv &> /dev/null; then
+                    echo "[*] Installing uv..."
+                    curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+                  fi
+
+                  cd /app
+
+                  if [ ! -d node_modules ]; then
+                    echo "[*] Installing node modules..."
+                    npm ci
+                  fi
+
+                  echo "[*] Building application..."
+                  npm run build
+
+                  echo "[*] Running sync-and-index-cron runner..."
+                  uv run scripts/k3s/sync-and-index-cron.py
+              env:
+                - name: GOOGLE_APPLICATION_CREDENTIALS
+                  value: /etc/gcp/credentials.json
+                - name: GCP_PROJECT_ID
+                  value: ragflow-498510
+                - name: GCP_LOCATION
+                  value: global
+                - name: GCP_DATA_STORE_ID
+                  value: knowledge-qna-ds
+                - name: GCP_SEARCH_ENGINE_ID
+                  value: knowledge-qna-engine
+                - name: MINIO_ENDPOINT
+                  value: g9-minio.minio.svc.cluster.local:9000
+                - name: MINIO_BUCKET
+                  value: knowledge-docs
+                - name: MINIO_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: minio-credentials
+                      key: MINIO_ROOT_USER
+                - name: MINIO_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: minio-credentials
+                      key: MINIO_ROOT_PASSWORD
+              volumeMounts:
+                - name: gcp-creds
+                  mountPath: /etc/gcp
+                  readOnly: true
+                - name: app-code
+                  mountPath: /app
+          volumes:
+            - name: gcp-creds
+              secret:
+                secretName: gcp-credentials
+            - name: app-code
+              hostPath:
+                path: /var/lib/knowledge-qna
+                type: DirectoryOrCreate

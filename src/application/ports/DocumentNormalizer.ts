@@ -20,4 +20,5 @@ export interface NormalizeInput {
 export interface DocumentNormalizer {
   readonly profileId: string;
   normalize(input: NormalizeInput): Promise<NormalizedDocument>;
+  normalizeMany?(input: NormalizeInput): Promise<NormalizedDocument[]>;
 }
