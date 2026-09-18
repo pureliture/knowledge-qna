@@ -17,8 +17,15 @@ rsync -avz --delete \
   --exclude '.worktrees' \
   ./ "$TARGET_HOST:$TARGET_DIR/"
 
-echo "[*] Applying k3s CronJob manifest..."
+echo "[*] Applying k3s manifests..."
 KUBECONFIG="$KUBECONFIG_PATH" kubectl apply -f k8s/cronjob.yaml
+KUBECONFIG="$KUBECONFIG_PATH" kubectl apply -f k8s/mcp-server-deployment.yaml
 
-echo "[ok] Deployment complete! Checking CronJob status:"
-KUBECONFIG="$KUBECONFIG_PATH" kubectl get cronjobs -n knowledge-qna
+echo "[*] Triggering rollout restart of MCP server to pick up new code..."
+KUBECONFIG="$KUBECONFIG_PATH" kubectl rollout restart deployment/knowledge-qna-mcp-server -n knowledge-qna || true
+
+echo "[*] Waiting for MCP server deployment rollout..."
+KUBECONFIG="$KUBECONFIG_PATH" kubectl rollout status deployment/knowledge-qna-mcp-server -n knowledge-qna --timeout=60s || true
+
+echo "[ok] Deployment complete! Checking resources in knowledge-qna:"
+KUBECONFIG="$KUBECONFIG_PATH" kubectl get all -n knowledge-qna

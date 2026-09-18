@@ -261,7 +261,11 @@ export class AppContainer {
         this.backendKey,
       );
 
-    this.mcpServer = createKnowledgeQnaMcpServer({
+    this.mcpServer = this.createMcpServer();
+  }
+
+  createMcpServer(): McpServer {
+    return createKnowledgeQnaMcpServer({
       resolveLibraryUseCase: this.resolveLibraryUseCase,
       getContextUseCase: this.getContextUseCase,
       logger: this.logger,

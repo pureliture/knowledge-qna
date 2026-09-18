@@ -52,6 +52,7 @@ async function main(): Promise<void> {
 
     return {
       mcpServer: container.mcpServer,
+      createMcpServer: () => container!.createMcpServer(),
       libraryRegistry: container.libraryRegistry,
       manifestStore: container.manifestStore,
       syncUseCase: container.syncUseCase,
@@ -62,6 +63,7 @@ async function main(): Promise<void> {
       remoteSearchBackend: container.remoteSearchBackend,
       varRoot: container.varRoot,
       configDir: container.configDir,
+      logger: container.logger,
     };
   }
 
