@@ -12,6 +12,7 @@ import type { GetContextUseCase } from '../../application/retrieval/get-context.
 import type { IndexUseCase } from '../../application/indexing/IndexUseCase.js';
 import type { GarbageCollectionUseCase } from '../../application/indexing/GarbageCollectionUseCase.js';
 import type { SearchBackend } from '../../application/ports/SearchBackend.js';
+import type { Logger } from '../mcp/server.js';
 import { runServeCommand } from './commands/serve.js';
 import { runDoctorCommand } from './commands/doctor.js';
 import { runSyncCommand } from './commands/sync.js';
@@ -21,6 +22,7 @@ import { runGcCommand } from './commands/gc.js';
 
 export interface CliDependencies {
   mcpServer: McpServer;
+  createMcpServer?: () => McpServer;
   libraryRegistry: LibraryRegistry;
   manifestStore?: ManifestStore;
   syncUseCase?: SyncUseCase;
@@ -31,6 +33,7 @@ export interface CliDependencies {
   remoteSearchBackend?: SearchBackend;
   varRoot: string;
   configDir: string;
+  logger?: Logger;
 }
 
 export function buildCliProgram(getDeps: () => CliDependencies): Command {
@@ -47,10 +50,20 @@ export function buildCliProgram(getDeps: () => CliDependencies): Command {
 
   program
     .command('serve')
-    .description('Start the host-local stdio MCP v2 server')
-    .action(async () => {
+    .description('Start the host-local stdio or HTTP/SSE MCP server')
+    .option('-t, --transport <mode>', 'Transport mode: stdio or sse', 'stdio')
+    .option('-p, --port <port>', 'Port for sse transport', (val) => parseInt(val, 10), 3000)
+    .option('-h, --host <host>', 'Host for sse transport', '0.0.0.0')
+    .action(async (cmdOptions: { transport?: 'stdio' | 'sse'; port?: number; host?: string }) => {
       const deps = getDeps();
-      await runServeCommand({ mcpServer: deps.mcpServer });
+      await runServeCommand({
+        mcpServer: deps.mcpServer,
+        createMcpServer: deps.createMcpServer,
+        transport: cmdOptions.transport,
+        port: cmdOptions.port,
+        host: cmdOptions.host,
+        logger: deps.logger,
+      });
     });
 
   program

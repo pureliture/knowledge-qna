@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: knowledge-qna-mcp-server
+  namespace: knowledge-qna
+  labels:
+    app: knowledge-qna-mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: knowledge-qna-mcp
+  template:
+    metadata:
+      labels:
+        app: knowledge-qna-mcp
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: homelab
+      restartPolicy: Always
+      containers:
+        - name: mcp-server
+          image: node:24-bookworm-slim
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -euo pipefail
+              cd /app
+
+              if [ ! -d node_modules ]; then
+                echo "[*] Installing dependencies..."
+                npm ci
+              fi
+
+              echo "[*] Building application..."
+              npm run build
+
+              echo "[*] Starting MCP HTTP/SSE server on port 3000..."
+              exec node ./dist/main.js serve --transport sse --port 3000 --host 0.0.0.0
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: /etc/gcp/credentials.json
+            - name: GOOGLE_AGENT_SEARCH_PROJECT_ID
+              value: ragflow-498510
+            - name: GOOGLE_AGENT_SEARCH_LOCATION
+              value: global
+            - name: GOOGLE_AGENT_SEARCH_DATA_STORE_ID
+              value: knowledge-qna-ds
+            - name: GOOGLE_AGENT_SEARCH_SERVING_CONFIG_ID
+              value: default_search
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          volumeMounts:
+            - name: gcp-creds
+              mountPath: /etc/gcp
+              readOnly: true
+            - name: app-code
+              mountPath: /app
+      volumes:
+        - name: gcp-creds
+          secret:
+            secretName: gcp-credentials
+        - name: app-code
+          hostPath:
+            path: /var/lib/knowledge-qna
+            type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: knowledge-qna-mcp-service
+  namespace: knowledge-qna
+  labels:
+    app: knowledge-qna-mcp
+spec:
+  type: NodePort
+  selector:
+    app: knowledge-qna-mcp
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      nodePort: 30080
+      protocol: TCP
