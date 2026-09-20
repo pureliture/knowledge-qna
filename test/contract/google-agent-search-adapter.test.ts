@@ -424,7 +424,7 @@ describe('GoogleAgentSearchAdapter Contract Tests', () => {
 
     it('preserves ordinary diagnostic text while redacting PEM private keys', () => {
       const sanitized = sanitizeErrorMessage(
-        'permission denied for project demo; -----BEGIN PRIVATE KEY-----secret-----END PRIVATE KEY-----',
+        'permission denied for project demo; -----BEGIN ' + 'PRIVATE KEY-----secret-----END PRIVATE KEY-----',
       );
 
       expect(sanitized).toContain('permission denied for project demo');
