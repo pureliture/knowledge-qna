@@ -1,0 +1,31 @@
+node_modules
+dist/
+var/
+.worktrees/
+.env
+.env.*
+.DS_Store
+*.log
+.agents/
+
+# Local-only ops material (not published)
+/k8s/
+/infra/
+/scripts/k3s/
+/ORIGINAL_REQUEST.md
+/milestones.md
+
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+!*.tfvars.example
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc

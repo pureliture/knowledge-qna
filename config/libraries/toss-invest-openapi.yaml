@@ -1,0 +1,36 @@
+schemaVersion: 1
+id: toss-invest-openapi
+name: 토스증권 Open API
+aliases:
+  - toss-openapi
+  - tossinvest
+  - toss-stock
+defaultVersionKey: "1.2.17"
+versions:
+  - versionKey: "1.2.17"
+    strategy: explicit
+    source:
+      type: static
+      urls:
+        - "https://openapi.tossinvest.com/openapi-docs/latest/openapi.json"
+      allowedHosts:
+        - "openapi.tossinvest.com"
+      allowHttp: false
+    parser:
+      contentSelectors:
+        - "main"
+        - "article"
+      removeSelectors:
+        - "nav"
+        - "footer"
+    chunking:
+      minTokens: 200
+      targetTokens: 800
+      maxTokens: 1400
+      maxAtomicTokens: 16000
+    freshness:
+      staleAfterHours: 168
+    readinessQueries:
+      - "주식 주문 생성"
+      - "호가 조회"
+      - "계좌 잔고"
